@@ -70,17 +70,17 @@ type RouteHandler = (
   params?: Record<string, string>,
 ) => Promise<NextResponse>
 
+// Next.js 15 requires params to be a Promise in route handlers
+type RouteContext = { params: Promise<Record<string, string>> }
+
 export function withAuth(handler: RouteHandler) {
   return async (
     req: NextRequest,
-    context?: { params?: Promise<Record<string, string>> | Record<string, string> },
+    context: RouteContext,
   ): Promise<NextResponse> => {
     try {
       const auth = await authenticateRequest(req)
-      // Next.js 15: params may be a Promise — resolve it before passing to handler
-      const params = context?.params instanceof Promise
-        ? await context.params
-        : context?.params
+      const params = await context.params
       return await handler(req, auth, params)
     } catch (err) {
       return error(err)

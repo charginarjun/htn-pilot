@@ -680,7 +680,7 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
                     Re-run
                   </button>
                 </div>
-                {assessmentResult.aiNarrative && (
+                {(assessmentResult.aiNarrative as string | undefined) && (
                   <p className="text-sm text-slate-600 leading-relaxed">
                     {String(assessmentResult.aiNarrative)}
                   </p>
@@ -759,8 +759,8 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
                             </div>
                             <div>
                               <div className="text-sm font-semibold text-slate-800">{String(rec.recommendation ?? rec.title ?? 'Recommendation')}</div>
-                              {rec.rationale && <div className="text-xs text-slate-500 mt-0.5">{String(rec.rationale)}</div>}
-                              {rec.guidelineReference && <div className="text-xs text-blue-500 mt-1">{String(rec.guidelineReference)}</div>}
+                              {(rec.rationale as string | undefined) && <div className="text-xs text-slate-500 mt-0.5">{String(rec.rationale)}</div>}
+                              {(rec.guidelineReference as string | undefined) && <div className="text-xs text-blue-500 mt-1">{String(rec.guidelineReference)}</div>}
                             </div>
                           </div>
                         ))}
