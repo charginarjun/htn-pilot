@@ -6,7 +6,7 @@ import bcrypt from 'bcryptjs'
 import db from './db'
 
 const JWT_SECRET = process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production'
-const ACCESS_EXPIRES = process.env['JWT_ACCESS_EXPIRES_IN'] ?? '15m'
+const ACCESS_EXPIRES = process.env['JWT_ACCESS_EXPIRES_IN'] ?? '12h'
 const REFRESH_EXPIRES = process.env['JWT_REFRESH_EXPIRES_IN'] ?? '7d'
 
 export interface TokenPayload {

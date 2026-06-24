@@ -70,7 +70,7 @@ type RouteHandler = (
   params?: Record<string, string>,
 ) => Promise<NextResponse>
 
-// Next.js 15 requires params to be a Promise in route handlers
+// Next.js 15: params is always a Promise for dynamic routes
 type RouteContext = { params: Promise<Record<string, string>> }
 
 export function withAuth(handler: RouteHandler) {
@@ -80,7 +80,9 @@ export function withAuth(handler: RouteHandler) {
   ): Promise<NextResponse> => {
     try {
       const auth = await authenticateRequest(req)
-      const params = await context.params
+      // Use optional chaining: non-dynamic routes receive no context at runtime
+      const ctx = context as { params?: Promise<Record<string, string>> } | undefined
+      const params = ctx?.params ? await ctx.params : undefined
       return await handler(req, auth, params)
     } catch (err) {
       return error(err)
