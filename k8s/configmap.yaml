@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: htn-pilot-config
+  namespace: htn-pilot
+data:
+  # Non-secret runtime config — safe to commit
+  NODE_ENV: "production"
+  NEXT_PUBLIC_APP_NAME: "HTN Pilot"
+  NEXT_PUBLIC_APP_URL: "https://app.htnpilot.com"
+  JWT_ACCESS_EXPIRES_IN: "15m"
+  JWT_REFRESH_EXPIRES_IN: "7d"
+  ANTHROPIC_MODEL: "claude-opus-4-8"
+  ANTHROPIC_MODEL_FAST: "claude-haiku-4-5-20251001"
+  EPIC_FHIR_ENABLED: "false"
+  RATE_LIMIT_WINDOW_MS: "60000"
+  RATE_LIMIT_MAX_REQUESTS: "100"
+  LOG_LEVEL: "info"
+---
+# Secret TEMPLATE — do not commit real values.
+# Apply with: kubectl apply -f k8s/secrets.yaml (encrypted via Sealed Secrets or AWS Secrets Manager)
+# Real values managed in AWS Secrets Manager and synced via External Secrets Operator.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: htn-pilot-secrets
+  namespace: htn-pilot
+  annotations:
+    # If using External Secrets Operator, reference the AWS secret here
+    # externalsecrets.io/aws-secret-name: "htn-pilot/production"
+type: Opaque
+stringData:
+  # ⚠️  REPLACE ALL VALUES — never commit real secrets
+  DATABASE_URL: "postgresql://user:CHANGE_ME@your-rds-host:5432/htn_pilot_prod?sslmode=require"
+  DATABASE_URL_POOL: "postgresql://user:CHANGE_ME@your-rds-host:6432/htn_pilot_prod?sslmode=require"
+  REDIS_URL: "rediss://CHANGE_ME@your-elasticache-host:6379"
+  JWT_SECRET: "CHANGE_ME_64_CHAR_RANDOM_STRING"
+  ANTHROPIC_API_KEY: "sk-ant-CHANGE_ME"
+  FIELD_ENCRYPTION_KEY: "CHANGE_ME_32_BYTE_AES_KEY_BASE64"
+  AWS_ACCESS_KEY_ID: "CHANGE_ME"
+  AWS_SECRET_ACCESS_KEY: "CHANGE_ME"
+  AWS_S3_BUCKET: "htn-pilot-documents-prod"
+  AWS_S3_REGION: "us-east-1"

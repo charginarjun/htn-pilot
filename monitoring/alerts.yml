@@ -1,0 +1,233 @@
+# ─── HTN Pilot — Alert Rules ─────────────────────────────────────────────────
+# These fire to PagerDuty (critical) or Slack (warning).
+# Clinical alerts are P1. Infrastructure alerts are P2/P3.
+
+groups:
+
+  # ── Application SLOs ────────────────────────────────────────────────────────
+  - name: htn_pilot_slo
+    rules:
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{job="htn-pilot", status=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total{job="htn-pilot"}[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          team: engineering
+        annotations:
+          summary: "HTN Pilot error rate > 1%"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes. SLO breach imminent."
+          runbook: "https://runbooks.htnpilot.com/high-error-rate"
+
+      - alert: HighP99Latency
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_request_duration_seconds_bucket{job="htn-pilot"}[5m])) by (le, route)
+          ) > 3
+        for: 5m
+        labels:
+          severity: warning
+          team: engineering
+        annotations:
+          summary: "P99 latency > 3s on {{ $labels.route }}"
+          description: "Route {{ $labels.route }} p99 latency is {{ $value | humanizeDuration }}."
+
+      - alert: AppDown
+        expr: up{job="htn-pilot"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: engineering
+          pagerduty: "true"
+        annotations:
+          summary: "HTN Pilot is DOWN"
+          description: "All HTN Pilot pods are unreachable for > 2 minutes. Patients cannot access the system."
+          runbook: "https://runbooks.htnpilot.com/app-down"
+
+      - alert: HealthCheckFailing
+        expr: |
+          sum(kube_pod_container_status_ready{namespace="htn-pilot", container="htn-pilot"})
+          /
+          sum(kube_deployment_spec_replicas{namespace="htn-pilot", deployment="htn-pilot"}) < 0.5
+        for: 3m
+        labels:
+          severity: critical
+          team: engineering
+        annotations:
+          summary: "< 50% of HTN Pilot pods are ready"
+          description: "{{ $value | humanizePercentage }} of pods passing health checks. Deployment may be failing."
+
+  # ── Clinical Workflow Alerts (Business-critical) ──────────────────────────
+  - name: htn_pilot_clinical
+    rules:
+
+      - alert: AIAssessmentFailureSpike
+        expr: |
+          sum(increase(htn_assessment_errors_total[10m])) > 5
+        for: 2m
+        labels:
+          severity: critical
+          team: clinical-engineering
+          pagerduty: "true"
+        annotations:
+          summary: "AI clinical assessments failing"
+          description: "{{ $value }} assessment failures in the last 10 minutes. Physicians may not be able to review cases."
+          runbook: "https://runbooks.htnpilot.com/assessment-failures"
+
+      - alert: AnthropicAPILatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(anthropic_api_duration_seconds_bucket[5m])) by (le)
+          ) > 30
+        for: 5m
+        labels:
+          severity: warning
+          team: engineering
+        annotations:
+          summary: "Anthropic API p95 latency > 30s"
+          description: "AI assessments are slow. Clinical workflow impact likely."
+
+      - alert: AnthropicAPIDown
+        expr: |
+          sum(increase(anthropic_api_errors_total{error="connection_error"}[5m])) > 3
+        for: 3m
+        labels:
+          severity: warning
+          team: engineering
+        annotations:
+          summary: "Anthropic API unreachable"
+          description: "Deterministic engine still works — assessments will run without AI narrative."
+
+  # ── Database Alerts ────────────────────────────────────────────────────────
+  - name: htn_pilot_database
+    rules:
+
+      - alert: DatabaseDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: engineering
+          pagerduty: "true"
+        annotations:
+          summary: "PostgreSQL is DOWN"
+          description: "Database unreachable. Application is completely non-functional."
+          runbook: "https://runbooks.htnpilot.com/database-down"
+
+      - alert: DatabaseConnectionPoolExhausted
+        expr: |
+          pg_stat_database_numbackends{datname="htn_pilot_prod"}
+          / pg_settings_max_connections > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          team: engineering
+        annotations:
+          summary: "DB connection pool > 85% used"
+          description: "{{ $value | humanizePercentage }} of max_connections in use. Risk of connection exhaustion."
+
+      - alert: SlowQueries
+        expr: |
+          sum(increase(pg_stat_statements_mean_exec_time_ms{datname="htn_pilot_prod"}[10m])) > 1000
+        for: 10m
+        labels:
+          severity: warning
+          team: engineering
+        annotations:
+          summary: "Slow database queries detected"
+          description: "Average query execution > 1s. Check pg_stat_statements for the culprit."
+
+      - alert: DatabaseReplicationLag
+        expr: pg_replication_lag > 30
+        for: 5m
+        labels:
+          severity: warning
+          team: engineering
+        annotations:
+          summary: "DB replication lag > 30s"
+          description: "Read replica is {{ $value }}s behind primary. Read-after-write consistency at risk."
+
+  # ── Infrastructure Alerts ──────────────────────────────────────────────────
+  - name: htn_pilot_infrastructure
+    rules:
+
+      - alert: PodCrashLooping
+        expr: |
+          sum by (pod) (
+            increase(kube_pod_container_status_restarts_total{namespace="htn-pilot"}[15m])
+          ) > 3
+        for: 5m
+        labels:
+          severity: critical
+          team: engineering
+        annotations:
+          summary: "Pod {{ $labels.pod }} is crash looping"
+          description: "{{ $value }} restarts in 15 minutes. Check: kubectl logs {{ $labels.pod }} -n htn-pilot --previous"
+
+      - alert: HighMemoryUsage
+        expr: |
+          sum by (pod) (
+            container_memory_working_set_bytes{namespace="htn-pilot", container="htn-pilot"}
+          )
+          /
+          sum by (pod) (
+            kube_pod_container_resource_limits{namespace="htn-pilot", resource="memory"}
+          ) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          team: engineering
+        annotations:
+          summary: "Pod {{ $labels.pod }} memory > 85% of limit"
+          description: "OOMKill risk. Current: {{ $value | humanizePercentage }} of 1Gi limit."
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: engineering
+        annotations:
+          summary: "Redis is DOWN"
+          description: "Job queue (BullMQ) is non-functional. AI assessments will fail to queue. Synchronous fallback may apply."
+
+      - alert: DiskSpaceLow
+        expr: |
+          (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) > 0.85
+        for: 15m
+        labels:
+          severity: warning
+          team: engineering
+        annotations:
+          summary: "Disk space > 85% on {{ $labels.instance }}"
+          description: "{{ $value | humanizePercentage }} disk used. Clean up or expand volume."
+
+  # ── Security / Compliance Alerts ──────────────────────────────────────────
+  - name: htn_pilot_security
+    rules:
+
+      - alert: UnusuallyHighLoginFailures
+        expr: |
+          sum(increase(htn_auth_failures_total[5m])) > 20
+        for: 2m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High login failure rate — possible brute force"
+          description: "{{ $value }} failed logins in 5 minutes. Check for credential stuffing attack."
+
+      - alert: AuditLogWriteFailure
+        expr: |
+          sum(increase(htn_audit_log_errors_total[5m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: engineering
+          hipaa: "true"             # HIPAA requires audit logs — this is a compliance incident
+        annotations:
+          summary: "HIPAA AUDIT LOG WRITE FAILURE"
+          description: "Audit log writes are failing. This is a HIPAA compliance incident. Immediate attention required."

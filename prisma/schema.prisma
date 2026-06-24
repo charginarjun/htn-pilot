@@ -1,0 +1,1044 @@
+// ─── HTN Pilot — Prisma Schema ───────────────────────────────────────────────
+// Production-ready clinical data model
+// Multi-tenant, HIPAA audit-ready, FHIR R4 compatible
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL") // Use DATABASE_URL_POOL for connection pooling in prod
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum TenantPlan {
+  STARTER       // Up to 500 patients, basic workflow
+  PROFESSIONAL  // Unlimited patients, AI assessments
+  ENTERPRISE    // EPIC integration, white-label, SLA
+}
+
+enum UserRole {
+  SUPER_ADMIN    // Platform admin (Anthropic/HTN Pilot team)
+  TENANT_ADMIN   // Health system administrator
+  PHYSICIAN      // MD/DO — can approve recommendations & procedures
+  NP_PA          // NP/PA — can complete workups, cannot approve invasive procedures
+  COORDINATOR    // Clinical coordinator — manages workflow
+  MEDICAL_STAFF  // Support staff — data entry, scheduling
+}
+
+enum Sex {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum ReferralStatus {
+  PENDING_REVIEW         // Just received
+  SCREENING_IN_PROGRESS  // Screening being completed
+  NOT_ELIGIBLE           // Did not meet screening criteria
+  WORKUP_IN_PROGRESS     // Comprehensive workup underway
+  AWAITING_LABS          // Waiting on lab/imaging results
+  ASSESSMENT_PENDING     // Ready for AI assessment
+  ASSESSMENT_COMPLETE    // Assessment done, pending physician review
+  PHYSICIAN_REVIEW       // Physician actively reviewing
+  THERAPY_RECOMMENDED    // Invasive therapy recommended
+  PROCEDURE_SCHEDULED    // Procedure on the calendar
+  PROCEDURE_COMPLETE     // Procedure done, in follow-up
+  DISCHARGED             // Returned to PCP
+  LOST_TO_FOLLOWUP       // Patient did not return
+}
+
+enum Priority {
+  URGENT   // Hypertensive crisis / emergency
+  HIGH     // BP >180/110 symptomatic
+  ROUTINE  // Standard referral
+}
+
+enum HtnStage {
+  NORMAL            // <120/<80
+  ELEVATED          // 120-129/<80
+  STAGE_1           // 130-139/80-89
+  STAGE_2           // >=140/>=90
+  HYPERTENSIVE_CRISIS // >180/>120
+}
+
+enum ScreeningResult {
+  ELIGIBLE_FOR_WORKUP
+  NOT_ELIGIBLE_BP_CONTROLLED
+  NOT_ELIGIBLE_INSUFFICIENT_MEDS
+  WHITE_COAT_HYPERTENSION
+  MASKED_HYPERTENSION
+  NEEDS_AMBULATORY_BP
+  ADHERENCE_ISSUE_FIRST
+}
+
+enum WorkupItemStatus {
+  NOT_DONE
+  ORDERED
+  PENDING_RESULT
+  COMPLETED_NORMAL
+  COMPLETED_ABNORMAL
+  NOT_APPLICABLE
+}
+
+enum WorkupCompletionStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  AWAITING_RESULTS
+  COMPLETE
+}
+
+enum BpReadingType {
+  OFFICE
+  HOME
+  AMBULATORY_DAYTIME
+  AMBULATORY_NIGHTTIME
+  AMBULATORY_24H_AVG
+}
+
+enum Arm {
+  LEFT
+  RIGHT
+  BOTH
+}
+
+enum Position {
+  SITTING
+  STANDING
+  SUPINE
+}
+
+enum AntihypertensiveDrugClass {
+  ACE_INHIBITOR
+  ARB
+  ARNI                         // Sacubitril/valsartan
+  CALCIUM_CHANNEL_BLOCKER_DHP  // Amlodipine, nifedipine
+  CALCIUM_CHANNEL_BLOCKER_NDHP // Diltiazem, verapamil
+  THIAZIDE_DIURETIC
+  THIAZIDE_LIKE_DIURETIC       // Chlorthalidone, indapamide (preferred)
+  LOOP_DIURETIC
+  POTASSIUM_SPARING_DIURETIC
+  MINERALOCORTICOID_ANTAGONIST // Spironolactone, eplerenone, finerenone
+  BETA_BLOCKER
+  ALPHA_BLOCKER
+  CENTRAL_ALPHA_AGONIST        // Clonidine, methyldopa
+  DIRECT_VASODILATOR           // Hydralazine, minoxidil
+  RENIN_INHIBITOR              // Aliskiren
+  OTHER
+}
+
+enum AdherenceStatus {
+  ADHERENT
+  PARTIALLY_ADHERENT
+  NON_ADHERENT
+  UNKNOWN
+}
+
+enum LabType {
+  // Basic metabolic panel
+  SODIUM
+  POTASSIUM
+  CHLORIDE
+  BICARBONATE
+  CREATININE
+  BUN
+  EGFR
+  GLUCOSE
+  CALCIUM
+  MAGNESIUM
+  URIC_ACID
+  // Lipid panel
+  TOTAL_CHOLESTEROL
+  LDL_CHOLESTEROL
+  HDL_CHOLESTEROL
+  NON_HDL_CHOLESTEROL
+  TRIGLYCERIDES
+  APOLIPOPROTEIN_B
+  // Primary aldosteronism workup
+  PLASMA_ALDOSTERONE
+  PLASMA_RENIN_ACTIVITY
+  PLASMA_RENIN_DIRECT
+  ALDOSTERONE_RENIN_RATIO
+  // Pheochromocytoma workup
+  PLASMA_METANEPHRINES
+  PLASMA_NORMETANEPHRINES
+  URINE_METANEPHRINES_24H
+  URINE_CATECHOLAMINES_24H
+  URINE_VMA_24H
+  // Thyroid
+  TSH
+  FREE_T4
+  FREE_T3
+  // Adrenal / Cushing's
+  CORTISOL_AM
+  CORTISOL_PM
+  DEXAMETHASONE_SUPPRESSION
+  URINE_FREE_CORTISOL_24H
+  ACTH
+  // Renal
+  URINE_MICROALBUMIN
+  URINE_ALBUMIN_CREATININE_RATIO
+  URINE_PROTEIN_CREATININE_RATIO
+  URINE_SODIUM_24H
+  // CBC
+  HEMOGLOBIN
+  HEMATOCRIT
+  WBC
+  PLATELETS
+  // Cardiac
+  BNP
+  NT_PROBNP
+  TROPONIN_I
+  TROPONIN_T
+  // Metabolic
+  HBA1C
+  INSULIN_FASTING
+  HOMOCYSTEINE
+  HSCRP
+}
+
+enum ImagingType {
+  RENAL_DUPLEX_ULTRASOUND      // First-line for RAS screening
+  CTA_RENAL_ARTERIES           // Gold standard anatomical
+  MRA_RENAL_ARTERIES           // No contrast, good for CKD
+  RENAL_ANGIOGRAM              // Invasive, diagnostic/therapeutic
+  ECHOCARDIOGRAM_TTE           // LVH, cardiac function
+  ECHOCARDIOGRAM_TEE
+  CARDIAC_MRI
+  ADRENAL_CT                   // For pheochromocytoma/Cushing's
+  ADRENAL_MRI
+  ABDOMINAL_ULTRASOUND
+  RENAL_ULTRASOUND
+  POLYSOMNOGRAPHY              // OSA evaluation
+  AMBULATORY_BP_MONITOR
+  ECG
+  CHEST_XRAY
+  CT_AORTA                     // Coarctation evaluation
+  FUNDUSCOPIC_EXAM             // Hypertensive retinopathy
+}
+
+enum Comorbidity {
+  DIABETES_TYPE1
+  DIABETES_TYPE2
+  PREDIABETES
+  CHRONIC_KIDNEY_DISEASE
+  END_STAGE_RENAL_DISEASE
+  NEPHROTIC_SYNDROME
+  HEART_FAILURE_PRESERVED_EF
+  HEART_FAILURE_REDUCED_EF
+  CORONARY_ARTERY_DISEASE
+  MYOCARDIAL_INFARCTION_HISTORY
+  ATRIAL_FIBRILLATION
+  STROKE_ISCHEMIC
+  TIA
+  PERIPHERAL_ARTERY_DISEASE
+  AORTIC_ANEURYSM
+  OBSTRUCTIVE_SLEEP_APNEA
+  OBESITY
+  METABOLIC_SYNDROME
+  DYSLIPIDEMIA
+  HYPOTHYROIDISM
+  HYPERTHYROIDISM
+  PRIMARY_ALDOSTERONISM
+  RENOVASCULAR_HYPERTENSION
+  CUSHINGS_SYNDROME
+  PHEOCHROMOCYTOMA
+  PARAGANGLIOMA
+  COARCTATION_OF_AORTA
+  AORTIC_STENOSIS
+  CHRONIC_PAIN_SYNDROME
+  DEPRESSION
+  ANXIETY
+  NSAID_USE_REGULAR
+  ALCOHOL_USE_DISORDER
+  STIMULANT_USE               // Cocaine, amphetamines
+  ORAL_CONTRACEPTIVE_USE
+  PREGNANCY_RELATED_HTN
+  AUTOIMMUNE_DISEASE
+  HYPERPARATHYROIDISM
+}
+
+enum CvRiskCategory {
+  LOW          // <5% 10-yr ASCVD
+  BORDERLINE   // 5-7.5%
+  INTERMEDIATE // 7.5-20%
+  HIGH         // >=20% or DM/CKD/LDL>=190
+  VERY_HIGH    // ASCVD event, multiple high-risk conditions
+}
+
+enum TherapyType {
+  RENAL_DENERVATION
+  RENAL_ARTERY_STENTING
+  PERCUTANEOUS_TRANSLUMINAL_ANGIOPLASTY
+  BAROREFLEX_ACTIVATION_THERAPY
+  OPTIMAL_MEDICAL_THERAPY_INTENSIFICATION
+  LIFESTYLE_INTERVENTION_PROGRAM
+  SLEEP_APNEA_TREATMENT
+  ENDOCRINOLOGY_REFERRAL
+  NEPHROLOGY_REFERRAL
+  CARDIOLOGY_REFERRAL
+  FURTHER_WORKUP_NEEDED
+}
+
+enum RecommendationStrength {
+  CLASS_I_A     // Strong benefit, multiple RCTs — SHOULD be done
+  CLASS_I_B     // Strong benefit, limited RCTs — SHOULD be done
+  CLASS_IIA_A   // Benefit likely, RCT supported — reasonable to do
+  CLASS_IIA_B   // Benefit likely, limited data — reasonable to do
+  CLASS_IIB_B   // Unclear benefit — may be considered
+  CLASS_III_NO_BENEFIT // No benefit — not recommended
+  CLASS_III_HARM       // Harm — contraindicated
+}
+
+enum RecommendationStatus {
+  PENDING_PHYSICIAN_REVIEW
+  APPROVED_BY_PHYSICIAN
+  REJECTED_BY_PHYSICIAN
+  MODIFIED_BY_PHYSICIAN
+  PROCEDURE_SCHEDULED
+  PROCEDURE_COMPLETED
+}
+
+enum ProcedureStatus {
+  PENDING_SCHEDULING
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  POSTPONED
+  COMPLICATIONS
+}
+
+enum AuditAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  EXPORT
+  PRINT
+  ACCESS_DENIED
+  ASSESSMENT_TRIGGERED
+  RECOMMENDATION_APPROVED
+  RECOMMENDATION_REJECTED
+}
+
+enum ManagementPhase {
+  LIFESTYLE_ONLY         // Stage 1, low-moderate risk: 3-6 months lifestyle
+  MONOTHERAPY            // Stage 1 high risk or Stage 2: start one drug
+  DUAL_THERAPY           // Add second agent
+  TRIPLE_THERAPY         // Add third agent (usually diuretic)
+  QUADRUPLE_THERAPY      // Add spironolactone or other
+  INVASIVE_EVALUATION    // Resistant: evaluate for invasive therapy
+}
+
+// ─── Core Models ─────────────────────────────────────────────────────────────
+
+model Tenant {
+  id          String     @id @default(cuid())
+  name        String
+  slug        String     @unique
+  plan        TenantPlan @default(STARTER)
+  settings    Json       @default("{}")
+  // EPIC integration config (encrypted in application layer)
+  epicEnabled Boolean    @default(false)
+  epicConfig  Json?
+  // Billing
+  stripeCustomerId String?
+  // Feature flags
+  aiAssessmentsEnabled Boolean @default(true)
+  bulkImportEnabled    Boolean @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  users       User[]
+  patients    Patient[]
+  referrals   Referral[]
+  procedures  Procedure[]
+  auditLogs   AuditLog[]
+
+  @@index([slug])
+}
+
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  email        String   @unique
+  name         String
+  role         UserRole
+  npi          String?  // National Provider Identifier (clinicians)
+  specialty    String?
+  title        String?  // MD, DO, NP, PA, RN, etc.
+  passwordHash String
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  sessions     UserSession[]
+  auditLogs    AuditLog[]
+
+  @@index([tenantId])
+  @@index([email])
+}
+
+model UserSession {
+  id          String   @id @default(cuid())
+  userId      String
+  refreshToken String  @unique
+  expiresAt   DateTime
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshToken])
+}
+
+model Patient {
+  id              String   @id @default(cuid())
+  tenantId        String
+  mrn             String   // Medical Record Number (unique per tenant)
+  epicPatientId   String?  // EPIC FHIR Patient.id
+  fhirId          String?  // Generic FHIR Patient.id
+
+  // Demographics (PII — encrypted at application layer)
+  firstName       String
+  lastName        String
+  dateOfBirth     DateTime // Encrypted
+  sex             Sex
+  race            String?
+  ethnicity       String?
+
+  // Contact (encrypted)
+  phone           String?
+  email           String?
+  address         Json?    // { street, city, state, zip, country }
+
+  // Insurance
+  insuranceName   String?
+  insuranceId     String?
+  insuranceGroup  String?
+
+  // Metadata
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdById     String?
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  referrals       Referral[]
+  bpReadings      BpReading[]
+  medications     PatientMedication[]
+  labResults      LabResult[]
+  imagingStudies  ImagingStudy[]
+  comorbidities   PatientComorbidity[]
+  managementPlans ManagementPlan[]
+
+  @@unique([tenantId, mrn])
+  @@index([tenantId])
+  @@index([lastName, firstName])
+  @@index([epicPatientId])
+}
+
+// ─── Clinical Workflow ────────────────────────────────────────────────────────
+
+model Referral {
+  id                String        @id @default(cuid())
+  tenantId          String
+  patientId         String
+  referralNumber    String?       // Human-readable reference number
+  referringProvider String?
+  referringFacility String?
+  referralDate      DateTime      @default(now())
+  chiefComplaint    String?
+  referralNotes     String?
+  status            ReferralStatus @default(PENDING_REVIEW)
+  priority          Priority      @default(ROUTINE)
+
+  // Tracking
+  createdById       String?
+  assignedToId      String?
+  reviewedById      String?
+  reviewedAt        DateTime?
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  tenant            Tenant        @relation(fields: [tenantId], references: [id])
+  patient           Patient       @relation(fields: [patientId], references: [id])
+  screening         HtnScreening?
+  workup            HtnWorkup?
+  statusHistory     ReferralStatusHistory[]
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@index([status])
+  @@index([tenantId, status])
+}
+
+model ReferralStatusHistory {
+  id          String        @id @default(cuid())
+  referralId  String
+  fromStatus  ReferralStatus?
+  toStatus    ReferralStatus
+  changedById String?
+  notes       String?
+  changedAt   DateTime      @default(now())
+
+  referral    Referral      @relation(fields: [referralId], references: [id])
+
+  @@index([referralId])
+}
+
+model HtnScreening {
+  id          String   @id @default(cuid())
+  referralId  String   @unique
+
+  // Blood Pressure Data
+  avgOfficeSbp  Float?   // Average office SBP (mmHg)
+  avgOfficeDbp  Float?   // Average office DBP
+  avgHomeSbp    Float?   // Average home SBP
+  avgHomeDbp    Float?   // Average home DBP
+  avgAbpmDaySbp Float?   // Ambulatory daytime SBP
+  avgAbpmDayDbp Float?   // Ambulatory daytime DBP
+  abpmPerformed Boolean  @default(false)
+
+  // HTN Classification
+  htnStage      HtnStage?
+
+  // Resistant HTN Criteria (ACC/AHA 2018 Resistant HTN Statement)
+  // ≥3 antihypertensives at optimal doses including a diuretic
+  // OR BP controlled on ≥4 medications
+  medicationCount      Int?
+  onDiureticClass      Boolean?
+  diureticType         String?   // Thiazide-like preferred
+  optimizedDosing      Boolean?
+  adherenceAssessed    Boolean?  @default(false)
+  adherenceMethod      String?   // Pill count, MEMS, pharmacy refill, urine tox
+  adherenceConfirmed   Boolean?
+
+  // White coat / masked HTN exclusion
+  whiteCoatExcluded    Boolean?
+  maskedHtnConsidered  Boolean?
+
+  // Secondary causes initial screen
+  obviousSecondaryHtn  Boolean?
+  obviousSecondaryNotes String?
+
+  // Result
+  resistantHtn         Boolean?
+  refractoryHtn        Boolean?  // BP uncontrolled on ≥5 agents including mineralocorticoid antagonist
+  screeningResult      ScreeningResult?
+  screeningNotes       String?
+
+  completedById        String?
+  completedAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  referral             Referral  @relation(fields: [referralId], references: [id])
+}
+
+model HtnWorkup {
+  id          String   @id @default(cuid())
+  referralId  String   @unique
+
+  // ── Secondary HTN Evaluation ──────────────────────────────────────────────
+  // Each item follows guideline-recommended workup sequence
+
+  // 1. Primary Aldosteronism (most common secondary cause ~5-20%)
+  primaryAldosteronism     WorkupItemStatus @default(NOT_DONE)
+  arrResult                Float?           // Aldosterone:Renin ratio
+  arrAbnormal              Boolean?         // >30 ng/dL per ng/mL/h (ACC) or local cutoff
+  confirmationTesting      WorkupItemStatus @default(NOT_DONE)
+  adrenalImaging           WorkupItemStatus @default(NOT_DONE)
+  adrenalVeinSampling      WorkupItemStatus @default(NOT_DONE)
+
+  // 2. Renovascular Hypertension / Renal Artery Stenosis
+  renovascularHtn          WorkupItemStatus @default(NOT_DONE)
+  renalDuplexDone          Boolean          @default(false)
+  ctaMraDone               Boolean          @default(false)
+  stenosis                 Float?           // % stenosis if found
+  stenosisSide             String?          // LEFT / RIGHT / BILATERAL
+  renalArteryLength        Float?           // mm — needed for RDN planning
+  renalArteryDiameter      Float?           // mm — needed for RDN/stenting
+  accessoryRenalArteries   Boolean?
+
+  // 3. Obstructive Sleep Apnea
+  sleepApnea               WorkupItemStatus @default(NOT_DONE)
+  stopsAngScore            Int?             // STOP-BANG score
+  ahi                      Float?           // Apnea-Hypopnea Index from PSG
+  cpapInitiated            Boolean?
+
+  // 4. Renal Parenchymal Disease
+  renalParenchymal         WorkupItemStatus @default(NOT_DONE)
+  ckdStage                 String?          // G1-G5
+  proteinuria              Boolean?
+
+  // 5. Thyroid Disease
+  thyroidDisease           WorkupItemStatus @default(NOT_DONE)
+
+  // 6. Cushing's Syndrome
+  cushings                 WorkupItemStatus @default(NOT_DONE)
+  overnightDexResult       Float?           // Cortisol after 1mg dex (mcg/dL)
+
+  // 7. Pheochromocytoma / Paraganglioma
+  pheochromocytoma         WorkupItemStatus @default(NOT_DONE)
+  metanephrinesElevated    Boolean?
+
+  // 8. Coarctation of the Aorta
+  coarctationAorta         WorkupItemStatus @default(NOT_DONE)
+
+  // 9. Drug-Induced HTN review
+  drugInducedReviewed      Boolean          @default(false)
+  offendingAgentsIdentified String?
+
+  // ── Organ Damage Assessment ───────────────────────────────────────────────
+  ecgDone                  Boolean          @default(false)
+  ecgLvh                   Boolean?
+  echocardiogramDone       Boolean          @default(false)
+  echoLvh                  Boolean?
+  echoLvmi                 Float?           // g/m² — LV mass index
+  echoEf                   Float?           // Ejection fraction %
+  echoDiastolicDysfunction Boolean?
+  funduscopicDone          Boolean          @default(false)
+  hypertensiveRetinopathy  Boolean?
+  retinopathyGrade         Int?             // Keith-Wagener grade 1-4
+  microalbuminuriaDone     Boolean          @default(false)
+  albuminuriaMgG           Float?           // ACR mg/g
+
+  // ── Lifestyle Assessment ──────────────────────────────────────────────────
+  bmi                      Float?
+  waistCircumferenceCm     Float?
+  dietaryNaclGDay          Float?           // Estimated g/day sodium intake
+  dashDietAdherence        String?          // None/Partial/Full
+  alcoholDrinksPerWeek     Int?
+  smokingStatus            String?          // Never/Former/Current
+  physicalActivityMinWk    Int?             // Minutes/week of moderate activity
+
+  // ── Status ────────────────────────────────────────────────────────────────
+  workupStatus             WorkupCompletionStatus @default(NOT_STARTED)
+  workupNotes              String?
+  completedById            String?
+  completedAt              DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  referral                 Referral  @relation(fields: [referralId], references: [id])
+  assessment               ClinicalAssessment?
+}
+
+// ─── Clinical Measurements ────────────────────────────────────────────────────
+
+model BpReading {
+  id           String        @id @default(cuid())
+  patientId    String
+  readingDate  DateTime
+  readingType  BpReadingType
+  sbp          Int           // mmHg
+  dbp          Int           // mmHg
+  heartRate    Int?          // bpm
+  arm          Arm?
+  position     Position?     @default(SITTING)
+  device       String?       // Omron model, mercury, etc.
+  notes        String?
+  recordedById String?
+  // FHIR reference
+  fhirId       String?
+  createdAt    DateTime      @default(now())
+
+  patient      Patient       @relation(fields: [patientId], references: [id])
+
+  @@index([patientId, readingDate])
+  @@index([patientId, readingType])
+}
+
+model PatientMedication {
+  id              String                    @id @default(cuid())
+  patientId       String
+  genericName     String
+  brandName       String?
+  drugClass       AntihypertensiveDrugClass?
+  doseValue       Float?
+  doseUnit        String?                   // mg, mcg
+  frequency       String                    // once daily, twice daily, etc.
+  route           String?                   @default("oral")
+  maxDose         Float?                    // Maximum recommended dose for class
+  isAtMaxDose     Boolean?
+  startDate       DateTime?
+  endDate         DateTime?
+  isActive        Boolean                   @default(true)
+  adherence       AdherenceStatus?
+  reasonStopped   String?
+  prescribedById  String?
+  notes           String?
+  // FHIR reference
+  fhirId          String?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  patient         Patient                   @relation(fields: [patientId], references: [id])
+
+  @@index([patientId, isActive])
+  @@index([patientId, drugClass])
+}
+
+model LabResult {
+  id             String   @id @default(cuid())
+  patientId      String
+  labDate        DateTime
+  labType        LabType
+  numericValue   Float?
+  unit           String?
+  referenceRangeLow  Float?
+  referenceRangeHigh Float?
+  isAbnormal     Boolean?
+  isCritical     Boolean? @default(false)
+  rawValue       String?  // For text results (e.g., "Positive")
+  notes          String?
+  orderedById    String?
+  performingLab  String?
+  // FHIR reference
+  fhirId         String?
+  createdAt      DateTime @default(now())
+
+  patient        Patient  @relation(fields: [patientId], references: [id])
+
+  @@index([patientId, labType, labDate])
+}
+
+model ImagingStudy {
+  id                    String      @id @default(cuid())
+  patientId             String
+  studyDate             DateTime
+  studyType             ImagingType
+  indication            String?
+  findings              String?     // Narrative
+  impression            String?     // Radiologist impression
+  performingFacility    String?
+
+  // Renal-specific fields (critical for RDN/stenting planning)
+  renalArteryPatentLeft  Boolean?
+  renalArteryPatentRight Boolean?
+  stenosisPercentLeft    Float?    // % luminal stenosis
+  stenosisPercentRight   Float?
+  renalArteryLengthLeft  Float?    // mm — RDN catheter planning
+  renalArteryLengthRight Float?
+  renalArteryDiamLeft    Float?    // mm — RDN balloon sizing
+  renalArteryDiamRight   Float?
+  accessoryArteriesLeft  Int?      // Count
+  accessoryArteriesRight Int?
+
+  // Cardiac-specific
+  lvEjectionFraction     Float?
+  lvMassIndex            Float?    // g/m²
+
+  orderedById            String?
+  reportedById           String?
+  // FHIR reference
+  fhirId                 String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  patient                Patient   @relation(fields: [patientId], references: [id])
+
+  @@index([patientId, studyType])
+}
+
+model PatientComorbidity {
+  id             String      @id @default(cuid())
+  patientId      String
+  condition      Comorbidity
+  icdCode        String?
+  severity       String?     // Mild/Moderate/Severe
+  diagnosedDate  DateTime?
+  isActive       Boolean     @default(true)
+  controlledWith String?     // Treatment / management
+  notes          String?
+  // FHIR reference
+  fhirId         String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  patient        Patient     @relation(fields: [patientId], references: [id])
+
+  @@unique([patientId, condition])
+  @@index([patientId, isActive])
+}
+
+// ─── AI Clinical Assessment ───────────────────────────────────────────────────
+
+model ClinicalAssessment {
+  id            String   @id @default(cuid())
+  workupId      String   @unique
+
+  // Guideline versioning — immutable historical record
+  guidelineSetId String
+  guidelineVersion String  // e.g., "ACC/AHA-2023.1 + ESC-2024.0"
+
+  // HTN Classification
+  htnStage              HtnStage?
+  resistantHtnConfirmed Boolean?
+  refractoryHtnConfirmed Boolean?
+  pseudoresistanceExcluded Boolean?
+
+  // Secondary causes
+  secondaryCausesIdentified    Json?   // Array: [{cause, evidence, workupStatus}]
+  secondaryCausesRequireWorkup Json?   // Array of conditions needing further evaluation
+
+  // CV Risk
+  cvRiskCategory        CvRiskCategory?
+  ascvd10YearRisk       Float?          // Pooled Cohort Equation %
+  ascvdCalculationData  Json?           // Inputs used for PCE
+  highRiskConditions    Json?           // DM, CKD, prior ASCVD, LDL≥190
+
+  // BP Targets (guideline-determined)
+  bpTargetSbp           Int?   // e.g., 130
+  bpTargetDbp           Int?   // e.g., 80
+  bpTargetRationale     String?
+  currentBpControlled   Boolean?
+
+  // Management Protocol
+  managementPhase       ManagementPhase?
+  lifestyleRecommendations  Json?       // Structured lifestyle recs
+  medicationGaps            Json?       // [{drug class, rationale, priority}]
+  medicationOptimizations   Json?       // Dose up, switch class, add agent
+
+  // Invasive Therapy Eligibility
+  rdnEligible           Boolean?
+  rdnEligibilityDetails Json?   // {eligible, reasons[], contraindications[], prerequisites[]}
+  stentingEligible      Boolean?
+  stentingEligibilityDetails Json?
+  ptaEligible           Boolean?
+  ptaEligibilityDetails Json?
+
+  // AI Narrative
+  clinicalSummary       String?  // 2-3 paragraph clinical narrative
+  keyFindings           Json?    // Array of key clinical findings
+  recommendations       Json?    // Structured recommendation list with guideline refs
+  urgencyFlags          Json?    // Any urgent clinical flags
+
+  // Guideline Citations
+  guidelinesUsed        Json?    // [{society, year, section, recommendation}]
+  guidelineConflicts    Json?    // Where ACC/AHA and ESC differ on this patient
+
+  // AI metadata
+  aiModel               String?  // e.g., "claude-opus-4-8"
+  aiTokensUsed          Int?
+  confidenceScore       Float?   // 0-1 overall confidence
+  processingTimeMs      Int?
+
+  // Physician review
+  assessedAt            DateTime @default(now())
+  reviewedById          String?
+  reviewedAt            DateTime?
+  physicianAgrees       Boolean?
+  physicianNotes        String?
+  physicianModifications Json?
+
+  workup                HtnWorkup               @relation(fields: [workupId], references: [id])
+  therapyRecommendations TherapyRecommendation[]
+  managementPlan        ManagementPlan?
+
+  @@index([assessedAt])
+}
+
+model TherapyRecommendation {
+  id              String                 @id @default(cuid())
+  assessmentId    String
+  therapyType     TherapyType
+  recommendation  RecommendationStrength
+  indication      String                 // Clinical indication text
+  contraindications Json?               // Array of contraindications found
+  prerequisites   Json?                 // What must happen first
+  guidelineRefs   Json?                 // Specific citations [{society, year, class, level, text}]
+  procedureDetails Json?                // Estimated details if known
+  notes           String?
+
+  // Physician action
+  status          RecommendationStatus   @default(PENDING_PHYSICIAN_REVIEW)
+  approvedById    String?
+  approvedAt      DateTime?
+  physicianNotes  String?
+
+  assessment      ClinicalAssessment     @relation(fields: [assessmentId], references: [id])
+  procedure       Procedure?
+
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([assessmentId])
+}
+
+// ─── Guideline-Based Management Plan ─────────────────────────────────────────
+
+model ManagementPlan {
+  id            String          @id @default(cuid())
+  patientId     String
+  assessmentId  String?         @unique
+  tenantId      String?
+
+  phase         ManagementPhase
+  bpTargetSbp   Int
+  bpTargetDbp   Int
+
+  // Lifestyle interventions (ACC/AHA endorsed)
+  lifestylePlan Json            // [{intervention, expectedBpReduction, priority, notes}]
+
+  // Pharmacotherapy stepped care
+  currentStep   Int             @default(1)
+  medicationPlan Json           // [{step, drugClass, preferredAgent, dose, rationale, guidelineRef}]
+
+  // Monitoring plan
+  bpCheckIntervalWeeks Int?     // How often to recheck BP
+  labMonitoringPlan    Json?    // What labs, when
+  nextReviewDate       DateTime?
+
+  // Goals
+  goalsAchieved     Boolean     @default(false)
+  notesForPatient   String?     // Patient-friendly summary
+  notesForClinician String?
+
+  guidelineVersion  String?
+  createdById       String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  patient           Patient            @relation(fields: [patientId], references: [id])
+  assessment        ClinicalAssessment? @relation(fields: [assessmentId], references: [id])
+
+  @@index([patientId])
+}
+
+// ─── Procedure (Cath Lab) ─────────────────────────────────────────────────────
+
+model Procedure {
+  id                    String          @id @default(cuid())
+  tenantId              String
+  recommendationId      String          @unique
+  patientId             String
+
+  procedureType         TherapyType
+  scheduledDate         DateTime?
+  performedDate         DateTime?
+  status                ProcedureStatus @default(PENDING_SCHEDULING)
+
+  // Cath lab details
+  operatingPhysician    String?
+  assistingStaff        String?
+  facility              String?
+  cathLabRoom           String?
+
+  // Pre-procedure
+  consentObtained       Boolean         @default(false)
+  consentDate           DateTime?
+  prepInstructions      Json?
+  holdMedications       Json?           // Meds to hold and when
+  renalFunctionPreProc  Float?          // Pre-procedure creatinine/eGFR
+
+  // Intra-procedure (common)
+  accessSite            String?         // Radial/Femoral
+  sheathSize            String?
+  contrastTypeVolumeMl  Float?
+  fluoroscopyTimeMin    Float?
+  radiationDoseGy       Float?
+  complications         String?
+
+  // Renal Denervation specific
+  rdnSystem             String?         // Symplicity Spyral, Recor Paradise, etc.
+  rdnApproach           String?         // Radio frequency, ultrasound
+  rdnCatheterSizeLeft   String?
+  rdnCatheterSizeRight  String?
+  rdnLesionsLeft        Int?
+  rdnLesionsRight       Int?
+  rdnImpedanceData      Json?
+
+  // Renal Artery Stenting / PTA specific
+  treatmentSide         String?
+  preDilatation         Boolean?
+  stentType             String?
+  stentSizeDiamMm       Float?
+  stentSizeLengthMm     Float?
+  postDilatation        Boolean?
+  residualStenosis      Float?          // % post-procedure
+  finalAngiogramResult  String?
+
+  // Post-procedure
+  postProcedureBpReadings Json?         // [{time: "1h", sbp, dbp}, ...]
+  dischargeBpSbp        Int?
+  dischargeBpDbp        Int?
+  dischargeNotes        String?
+  followUpPlan          Json?           // Follow-up schedule
+  nextBpCheckDate       DateTime?
+
+  notes                 String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  tenant                Tenant          @relation(fields: [tenantId], references: [id])
+  recommendation        TherapyRecommendation @relation(fields: [recommendationId], references: [id])
+
+  @@index([tenantId, scheduledDate])
+  @@index([patientId])
+  @@index([status])
+}
+
+// ─── Guideline Registry ────────────────────────────────────────────────────────
+
+model GuidelineVersion {
+  id          String   @id @default(cuid())
+  name        String   // "ACC/AHA Hypertension Guidelines"
+  society     String   // "ACC/AHA" | "ESC" | "JNC" | "ISH"
+  year        Int
+  version     String   // "2023.1"
+  description String?
+  changeNotes String?  // What changed from prior version
+  isActive    Boolean  @default(true)
+
+  // The actual rule set is compiled TypeScript in the engine
+  // This record links assessments to the rule version used
+  engineVersion String  // Matches the TypeScript module version
+
+  publishedAt DateTime
+  activatedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([society, year, version])
+  @@index([isActive])
+}
+
+// ─── HIPAA Audit Log ──────────────────────────────────────────────────────────
+
+model AuditLog {
+  id          String      @id @default(cuid())
+  tenantId    String
+  userId      String?
+  action      AuditAction
+  resource    String      // Table/entity name
+  resourceId  String?     // ID of the affected record
+  oldValues   Json?       // Sanitized (no raw PHI in logs)
+  newValues   Json?
+  ipAddress   String?
+  userAgent   String?
+  sessionId   String?
+  timestamp   DateTime    @default(now())
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id])
+  user        User?       @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, timestamp])
+  @@index([userId, timestamp])
+  @@index([resource, resourceId])
+  @@index([timestamp])
+}

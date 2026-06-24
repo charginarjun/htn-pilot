@@ -1,0 +1,48 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: htn-pilot
+  namespace: htn-pilot
+  annotations:
+    # AWS ALB Ingress Controller
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80,"HTTPS":443}]'
+    # Force HTTPS
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # ACM certificate (replace with your ARN)
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:ACCOUNT:certificate/CERT-ID
+    # Sticky sessions for auth token consistency (not strictly required — JWT is stateless)
+    alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=false
+    # WAF association — blocks SQL injection, XSS at edge
+    alb.ingress.kubernetes.io/wafv2-acl-arn: arn:aws:wafv2:us-east-1:ACCOUNT:regional/webacl/htn-pilot/ID
+    # Access logs to S3 for HIPAA audit trail
+    alb.ingress.kubernetes.io/load-balancer-attributes: >-
+      access_logs.s3.enabled=true,
+      access_logs.s3.bucket=htn-pilot-alb-logs,
+      access_logs.s3.prefix=production,
+      idle_timeout.timeout_seconds=60
+    # Health check
+    alb.ingress.kubernetes.io/healthcheck-path: /api/health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+
+spec:
+  rules:
+    - host: app.htnpilot.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: htn-pilot
+                port:
+                  number: 80
+
+  tls:
+    - hosts:
+        - app.htnpilot.com
+      secretName: htn-pilot-tls     # Managed by cert-manager or ACM via ALB annotation

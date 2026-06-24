@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: htn-pilot
+  namespace: htn-pilot
+  labels:
+    app: htn-pilot
+  annotations:
+    # AWS ALB controller — provision a load balancer automatically
+    service.beta.kubernetes.io/aws-load-balancer-type: "external"
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+spec:
+  type: ClusterIP                  # Ingress handles external traffic
+  selector:
+    app: htn-pilot
+    component: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
+      protocol: TCP
+  sessionAffinity: None            # Stateless — no sticky sessions needed

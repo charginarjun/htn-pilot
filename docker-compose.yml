@@ -1,0 +1,166 @@
+# ─── HTN Pilot — Local Development Stack ─────────────────────────────────────
+#
+# Runs the full application locally with hot reload.
+# Mirrors production topology (app + postgres + redis) without cloud dependencies.
+#
+# Usage:
+#   docker compose up          # Start all services
+#   docker compose up -d       # Start in background
+#   docker compose logs -f app # Follow app logs
+#   docker compose down -v     # Stop and delete volumes (fresh start)
+#
+# Prerequisites: Docker Desktop 4.x+
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: '3.9'
+
+services:
+
+  # ── Next.js Application ─────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev    # Use dev Dockerfile with hot reload
+    container_name: htn-pilot-app
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://htn_user:htn_dev_password@postgres:5432/htn_pilot_dev
+      DATABASE_URL_POOL: postgresql://htn_user:htn_dev_password@postgres:5432/htn_pilot_dev
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-jwt-secret-32-chars-minimum-x
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: claude-opus-4-8
+      ANTHROPIC_MODEL_FAST: claude-haiku-4-5-20251001
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_NAME: HTN Pilot
+      FIELD_ENCRYPTION_KEY: dev-encryption-key-32-bytes-xx
+      EPIC_FHIR_ENABLED: 'false'
+    volumes:
+      - .:/app                         # Hot reload — mount source
+      - /app/node_modules              # Don't overwrite container node_modules
+      - /app/.next                     # Don't overwrite build cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - htn-network
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000/api/health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: htn-pilot-postgres
+    restart: unless-stopped
+    ports:
+      - '5432:5432'                    # Exposed for Prisma Studio / pgAdmin
+    environment:
+      POSTGRES_DB: htn_pilot_dev
+      POSTGRES_USER: htn_user
+      POSTGRES_PASSWORD: htn_dev_password
+      # Performance tuning for development
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --lc-collate=C --lc-ctype=C'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - htn-network
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U htn_user -d htn_pilot_dev']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: >
+      postgres
+        -c shared_buffers=256MB
+        -c effective_cache_size=1GB
+        -c maintenance_work_mem=128MB
+        -c checkpoint_completion_target=0.9
+        -c wal_buffers=16MB
+        -c max_connections=100
+        -c log_min_duration_statement=1000
+
+  # ── Redis (BullMQ job queue) ─────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: htn-pilot-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - htn-network
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    command: >
+      redis-server
+        --maxmemory 256mb
+        --maxmemory-policy allkeys-lru
+        --save 60 1
+        --loglevel warning
+
+  # ── Prisma Studio (DB GUI) ───────────────────────────────────────────────────
+  prisma-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: htn-pilot-prisma-studio
+    restart: unless-stopped
+    ports:
+      - '5555:5555'
+    environment:
+      DATABASE_URL: postgresql://htn_user:htn_dev_password@postgres:5432/htn_pilot_dev
+    command: npx prisma studio --port 5555 --browser none
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - htn-network
+    profiles:
+      - tools                          # Only starts with: docker compose --profile tools up
+
+  # ── Redis Commander (Redis GUI) ──────────────────────────────────────────────
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: htn-pilot-redis-ui
+    restart: unless-stopped
+    ports:
+      - '8081:8081'
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - htn-network
+    profiles:
+      - tools
+
+# ── Volumes ────────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ── Networks ───────────────────────────────────────────────────────────────────
+networks:
+  htn-network:
+    driver: bridge
+    name: htn-pilot-network
