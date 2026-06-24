@@ -3,17 +3,19 @@
 import { useState, useEffect, useCallback, use } from 'react'
 import Link from 'next/link'
 import { apiFetch } from '@/lib/api-client'
+import { AddBpModal, AddMedModal, AddLabModal, AddComorbidityModal, AddAllergyModal, AddImagingModal } from './modals'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface BpReading { id: string; readingDate: string; readingType: string; sbp: number; dbp: number; heartRate?: number }
 interface Medication { id: string; genericName: string; doseValue?: number; doseUnit?: string; frequency?: string; drugClass: string; adherence?: string; isAtMaxDose?: boolean }
 interface LabResult { id: string; labType: string; numericValue?: number; unit?: string; isAbnormal?: boolean; labDate: string }
 interface Comorbidity { id: string; condition: string; severity?: string; icdCode?: string }
+interface Allergy { id: string; allergen: string; allergyType: string; reaction?: string; severity?: string }
 interface Workup { id: string; workupStatus?: string; primaryAldosteronism?: string; arrResult?: number; arrAbnormal?: boolean; renovascularHtn?: string; sleepApnea?: string; ahi?: number; ecgLvh?: boolean; echoLvmi?: number; albuminuriaMgG?: number; ckdStage?: string; thyroidDisease?: string; cushings?: string; pheochromocytoma?: string; bmi?: number }
 interface Patient {
   id: string; mrn: string; firstName: string; lastName: string; dateOfBirth: string; sex: string
   bpReadings: BpReading[]; medications: Medication[]; labResults: LabResult[]
-  comorbidities: Comorbidity[]
+  comorbidities: Comorbidity[]; allergies: Allergy[]
   referrals: Array<{ id: string; status: string; priority: string; referringProvider?: string; referringFacility?: string; workup?: Workup }>
 }
 
@@ -193,6 +195,7 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
   const [assessmentRunning, setAssessmentRunning] = useState(false)
   const [assessmentResult, setAssessmentResult] = useState<Record<string, unknown> | null>(null)
   const [toast, setToast] = useState('')
+  const [modal, setModal] = useState<'bp'|'med'|'lab'|'comorbidity'|'allergy'|'imaging'|null>(null)
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -272,6 +275,14 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
           {toast}
         </div>
       )}
+
+      {/* Clinical data entry modals */}
+      {modal === 'bp' && <AddBpModal patientId={id} onClose={() => setModal(null)} onAdded={() => { setModal(null); loadPatient(); showToast('BP reading added ✓') }} />}
+      {modal === 'med' && <AddMedModal patientId={id} onClose={() => setModal(null)} onAdded={() => { setModal(null); loadPatient(); showToast('Medication added ✓') }} />}
+      {modal === 'lab' && <AddLabModal patientId={id} onClose={() => setModal(null)} onAdded={() => { setModal(null); loadPatient(); showToast('Lab result added ✓') }} />}
+      {modal === 'comorbidity' && <AddComorbidityModal patientId={id} onClose={() => setModal(null)} onAdded={() => { setModal(null); loadPatient(); showToast('Comorbidity added ✓') }} />}
+      {modal === 'allergy' && <AddAllergyModal patientId={id} onClose={() => setModal(null)} onAdded={() => { setModal(null); loadPatient(); showToast('Allergy added ✓') }} />}
+      {modal === 'imaging' && <AddImagingModal patientId={id} onClose={() => setModal(null)} onAdded={() => { setModal(null); loadPatient(); showToast('Study added ✓') }} />}
 
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-slate-500">
@@ -397,8 +408,9 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
 
             {/* Medications */}
             <div className="card-padded">
-              <div className="section-header">
+              <div className="section-header flex items-center justify-between mb-3">
                 <h3>Antihypertensive Regimen ({patient.medications.length} agents)</h3>
+                <button onClick={() => setModal('med')} className="btn-secondary text-xs py-1 px-2">+ Add</button>
               </div>
               {patient.medications.length === 0 ? (
                 <p className="text-sm text-slate-400">No medications recorded</p>
@@ -423,7 +435,10 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
 
             {/* BP history table */}
             <div className="card-padded">
-              <h3 className="mb-3">Blood Pressure History</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3>Blood Pressure History</h3>
+                <button onClick={() => setModal('bp')} className="btn-secondary text-xs py-1 px-2">+ Add</button>
+              </div>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100">
@@ -456,7 +471,13 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
           <div className="space-y-4">
             {/* Labs — grouped by panel */}
             <div className="card-padded">
-              <h3 className="mb-4">Laboratory Values</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3>Laboratory Values</h3>
+                <div className="flex gap-2">
+                  <button onClick={() => setModal('imaging')} className="btn-secondary text-xs py-1 px-2">+ Imaging</button>
+                  <button onClick={() => setModal('lab')} className="btn-secondary text-xs py-1 px-2">+ Lab</button>
+                </div>
+              </div>
               {patient.labResults.length === 0 ? (
                 <p className="text-sm text-slate-400">No labs recorded</p>
               ) : (() => {
@@ -558,7 +579,10 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
 
             {/* Comorbidities */}
             <div className="card-padded">
-              <h3 className="mb-3">Comorbidities</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3>Comorbidities</h3>
+                <button onClick={() => setModal('comorbidity')} className="btn-secondary text-xs py-1 px-2">+ Add</button>
+              </div>
               <div className="space-y-1.5">
                 {patient.comorbidities.map(c => (
                   <div key={c.id} className="flex items-center gap-2 text-sm">
@@ -571,6 +595,39 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
                 ))}
                 {patient.comorbidities.length === 0 && <p className="text-sm text-slate-400">None recorded</p>}
               </div>
+            </div>
+
+            {/* Allergies */}
+            <div className="card-padded">
+              <div className="flex items-center justify-between mb-3">
+                <h3>Allergies & Intolerances</h3>
+                <button onClick={() => setModal('allergy')} className="btn-secondary text-xs py-1 px-2">+ Add</button>
+              </div>
+              {patient.allergies.length === 0 ? (
+                <p className="text-sm text-slate-400">No known allergies recorded</p>
+              ) : (
+                <div className="space-y-2">
+                  {patient.allergies.map(a => {
+                    const sevColor: Record<string, string> = {
+                      ANAPHYLAXIS: 'bg-red-100 text-red-800 border-red-300',
+                      SEVERE: 'bg-red-50 text-red-700 border-red-200',
+                      MODERATE: 'bg-amber-50 text-amber-700 border-amber-200',
+                      MILD: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+                    }
+                    const color = sevColor[a.severity ?? ''] ?? 'bg-slate-50 text-slate-700 border-slate-200'
+                    return (
+                      <div key={a.id} className={`flex items-start gap-3 p-2.5 rounded-lg border text-sm ${color}`}>
+                        <div className="flex-1">
+                          <span className="font-semibold">{a.allergen}</span>
+                          <span className="text-xs opacity-75 ml-2">{a.allergyType}</span>
+                          {a.reaction && <div className="text-xs mt-0.5 opacity-80">{a.reaction}</div>}
+                        </div>
+                        {a.severity && <span className="text-xs font-medium">{a.severity}</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -443,6 +443,7 @@ model Patient {
   labResults      LabResult[]
   imagingStudies  ImagingStudy[]
   comorbidities   PatientComorbidity[]
+  allergies       PatientAllergy[]
   managementPlans ManagementPlan[]
 
   @@unique([tenantId, mrn])
@@ -754,6 +755,23 @@ model ImagingStudy {
   patient                Patient   @relation(fields: [patientId], references: [id])
 
   @@index([patientId, studyType])
+}
+
+model PatientAllergy {
+  id          String   @id @default(cuid())
+  patientId   String
+  allergen    String
+  allergyType String   @default("DRUG")  // DRUG | FOOD | ENVIRONMENTAL | LATEX | OTHER
+  reaction    String?
+  severity    String?  // MILD | MODERATE | SEVERE | ANAPHYLAXIS
+  isActive    Boolean  @default(true)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  patient     Patient  @relation(fields: [patientId], references: [id])
+
+  @@index([patientId])
 }
 
 model PatientComorbidity {

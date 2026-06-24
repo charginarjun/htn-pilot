@@ -17,6 +17,7 @@ export const GET = withAuth(async (req: NextRequest, auth, params) => {
         labResults: { orderBy: { labDate: 'desc' } },
         imagingStudies: { orderBy: { studyDate: 'desc' }, take: 10 },
         comorbidities: { where: { isActive: true } },
+        allergies: { where: { isActive: true }, orderBy: { createdAt: 'asc' } },
         referrals: {
           orderBy: { createdAt: 'desc' },
           take: 1,
