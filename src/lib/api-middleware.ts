@@ -42,6 +42,15 @@ export function error(err: unknown): NextResponse {
     )
   }
 
+  // Handle plain objects with statusCode + message (e.g. error({ statusCode: 404, message: '...' }))
+  if (err && typeof err === 'object' && 'statusCode' in err && 'message' in err) {
+    const e = err as { statusCode: number; message: string }
+    return NextResponse.json(
+      { success: false, error: e.message },
+      { status: e.statusCode },
+    )
+  }
+
   if (err instanceof ZodError) {
     return NextResponse.json(
       {
@@ -53,7 +62,7 @@ export function error(err: unknown): NextResponse {
     )
   }
 
-  // Log unexpected errors (in production, this goes to your error tracker)
+  // Log unexpected errors
   console.error('[API Error]', err)
 
   return NextResponse.json(

@@ -246,8 +246,8 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
   if (error || !patient) return (
     <div className="max-w-lg mx-auto mt-16 text-center">
       <div className="text-4xl mb-4">🔍</div>
-      <h2 className="text-slate-800 mb-2">Patient not found</h2>
-      <p className="text-slate-500 text-sm mb-6">{error || 'This patient record could not be loaded. It may be a demo patient not yet in the database.'}</p>
+      <h2 className="text-slate-800 mb-2">{error ? 'Error loading patient' : 'Patient not found'}</h2>
+      <p className="text-slate-500 text-sm mb-6">{error || 'This patient record could not be loaded.'}</p>
       <Link href="/patients" className="btn-primary">← Back to Patients</Link>
     </div>
   )
