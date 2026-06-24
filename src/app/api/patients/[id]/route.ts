@@ -25,7 +25,7 @@ export const GET = withAuth(async (req: NextRequest, auth, params) => {
       },
     })
 
-    if (!patient) return error({ statusCode: 404, message: 'Patient not found' } as never)
+    if (!patient) return error({ statusCode: 404, message: `Patient not found (id: ${patientId})` } as never)
     if (patient.tenantId !== auth.tenantId) {
       return error({ statusCode: 403, message: 'Access denied' } as never)
     }
