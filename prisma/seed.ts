@@ -106,6 +106,8 @@ async function main() {
   })
 
   // Clear existing clinical data to prevent duplicates on re-seed
+  await db.htnWorkup.deleteMany({ where: { referral: { patientId: patient.id } } })
+  await db.referral.deleteMany({ where: { patientId: patient.id } })
   await db.patientMedication.deleteMany({ where: { patientId: patient.id } })
   await db.bpReading.deleteMany({ where: { patientId: patient.id } })
   await db.labResult.deleteMany({ where: { patientId: patient.id } })
