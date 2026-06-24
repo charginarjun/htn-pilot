@@ -56,6 +56,20 @@ async function main() {
   console.log('✓ Guideline versions seeded')
 
   // ── Users ─────────────────────────────────────────────────────────────────
+  // Remove any old demo accounts before re-seeding
+  await db.user.deleteMany({
+    where: {
+      email: {
+        in: [
+          'dr.interventional@metro-cardiology.demo',
+          'dr.stent.strimmer@metro-cardiology.demo',
+          'coordinator@metro-cardiology.demo',
+          'admin@metro-cardiology.demo',
+        ],
+      },
+    },
+  })
+
   const pwHash = await bcrypt.hash('HTNpilot2026!', 12)
 
   const physician = await db.user.upsert({
@@ -73,32 +87,7 @@ async function main() {
     },
   })
 
-  await db.user.upsert({
-    where: { email: 'coordinator@metro-cardiology.demo' },
-    update: {},
-    create: {
-      tenantId: tenant.id,
-      email: 'coordinator@metro-cardiology.demo',
-      name: 'Sarah Mitchell',
-      title: 'RN',
-      role: 'COORDINATOR',
-      passwordHash: pwHash,
-    },
-  })
-
-  await db.user.upsert({
-    where: { email: 'admin@metro-cardiology.demo' },
-    update: {},
-    create: {
-      tenantId: tenant.id,
-      email: 'admin@metro-cardiology.demo',
-      name: 'Admin User',
-      role: 'TENANT_ADMIN',
-      passwordHash: pwHash,
-    },
-  })
-
-  console.log('✓ Users seeded (password: HTNpilot2024!)')
+  console.log('✓ Users seeded')
 
   // ── Demo patient ──────────────────────────────────────────────────────────
   const patient = await db.patient.upsert({
@@ -252,10 +241,8 @@ async function main() {
 
   console.log('✓ Demo patient "Patricia Martinez" created with full clinical data')
   console.log('\n🎉 Seed complete!')
-  console.log('\nDemo credentials:')
-  console.log('  Physician: dr.interventional@metro-cardiology.demo / HTNpilot2024!')
-  console.log('  Coordinator: coordinator@metro-cardiology.demo / HTNpilot2024!')
-  console.log('  Admin: admin@metro-cardiology.demo / HTNpilot2024!')
+  console.log('\nLogin credentials:')
+  console.log('  Dr.Stent.Strimmer@gmail.com / HTNpilot2026!')
 }
 
 main()
